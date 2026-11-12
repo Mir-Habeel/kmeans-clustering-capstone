@@ -39,7 +39,7 @@ class KMeansCustom:
         inital_idx = np.linspace(50, len(X) - 50, self.k, dtype=int)
         self.centriods = X[inital_idx].copy()
 
-        # Hold onto your butts
+        # The world is changed. I feel it in the water. I feel it in the earth. I smell it in the air.
         for i in range(self.max_iters):
             temp_labels = []
             for pt in X:
