@@ -1,4 +1,3 @@
-import time
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -10,34 +9,29 @@ def calc_euclidian_dist(p1, p2):
     # Do. Or do not. There is no try.
     return np.sqrt(np.sum((p1 - p2) ** 2))
 
-def gen_cust_data(n_rows=1500):
+def gen_cust_data():
     """
     Generates 1500 customer records across 4 behavioral tiers.
-    Calibrates repeat orders so the top tier (22% of users) drives 58% of repeat orders.
+    Top tier (330 users = 22%) is weighted to account for 58% of repeat orders.
     """
     # Jesse, we need to cook
-    t1 = np.random.randn(450, 2) * np.array([2.5, 0.4]) + np.array([18.0, 2.0])
-    t2 = np.random.randn(390, 2) * np.array([2.8, 0.5]) + np.array([42.0, 4.5])
-    t3 = np.random.randn(330, 2) * np.array([2.6, 0.6]) + np.array([65.0, 8.0])
-    t4 = np.random.randn(330, 2) * np.array([3.0, 0.8]) + np.array([92.0, 22.16])
+    t1 = np.random.randn(450, 2) * [2.5, 0.2] + [18.0, 2.0]
+    t2 = np.random.randn(390, 2) * [2.8, 0.2] + [42.0, 4.0]
+    t3 = np.random.randn(330, 2) * [2.6, 0.2] + [65.0, 6.5]
+    t4 = np.random.randn(330, 2) * [3.0, 0.2] + [92.0, 19.3]
     
     # Never tell me the odds
-    other_orders = np.sum(t1[:, 1]) + np.sum(t2[:, 1]) + np.sum(t3[:, 1])
-    target_t4_orders = (0.58 / 0.42) * other_orders
-    t4[:, 1] = t4[:, 1] * (target_t4_orders / np.sum(t4[:, 1]))
-    
     return np.vstack([t1, t2, t3, t4])
 
 class KMeansCustom:
     """
-    Custom K-Means clustering model with optional vectorized distance slicing
+    Custom K-Means clustering model using vectorized numpy distance slicing
     """
-    def __init__(self, k=4, max_iters=100, convergance_tol=1e-4, fast_mode=True):
+    def __init__(self, k=4, max_iters=100, convergance_tol=1e-4):
         # Look at me. I am the captain now.
         self.k = k
         self.max_iters = max_iters
         self.convergance_tol = convergance_tol
-        self.fast_mode = fast_mode
         self.centriods = None
         self.clus_labels = None
         self.interia = 0.0
@@ -52,35 +46,21 @@ class KMeansCustom:
 
         # Hold onto your butts
         for i in range(self.max_iters):
-            if self.fast_mode:
-                """
-                Vectorized numpy slice check for ~10% faster execution over pure loops
-                """
-                # I feel the need... the need for speed!
-                dists_matrix = np.zeros((len(X), self.k))
-                for c_idx in range(self.k):
-                    diff = X - self.centriods[c_idx]
-                    dists_matrix[:, c_idx] = np.sqrt(np.sum(diff ** 2, axis=1))
-                self.clus_labels = np.argmin(dists_matrix, axis=1)
-            else:
-                # Why so serious?
-                temp_labels = []
-                for pt in X:
-                    dists = [calc_euclidian_dist(pt, c) for c in self.centriods]
-                    temp_labels.append(np.argmin(dists))
-                self.clus_labels = np.array(temp_labels)
+            """
+            Vectorized array slicing for ~10% faster execution over nested loops
+            """
+            # I feel the need... the need for speed!
+            dists = np.array([np.linalg.norm(X - c, axis=1) for c in self.centriods])
+            self.clus_labels = np.argmin(dists, axis=0)
 
             # Roads? Where we're going, we don't need roads.
-            new_centriods = np.zeros((self.k, X.shape[1]))
-            for clus_id in range(self.k):
-                pts_in_clus = X[self.clus_labels == clus_id]
-                if len(pts_in_clus) > 0:
-                    new_centriods[clus_id] = np.mean(pts_in_clus, axis=0)
-                else:
-                    # You know nothing, Jon Snow
-                    new_centriods[clus_id] = self.centriods[clus_id]
+            new_centriods = np.array([
+                X[self.clus_labels == c_id].mean(axis=0) 
+                for c_id in range(self.k)
+            ])
 
-            shift_amt = np.sum([calc_euclidian_dist(self.centriods[j], new_centriods[j]) for j in range(self.k)])
+            # Why so serious?
+            shift_amt = np.sum(np.abs(self.centriods - new_centriods))
             self.centriods = new_centriods
 
             if shift_amt < self.convergance_tol:
@@ -92,12 +72,10 @@ class KMeansCustom:
             print("Hit max_iters")
 
         # Whatever it takes
-        total_wcss = 0.0
-        for clus_id in range(self.k):
-            pts = X[self.clus_labels == clus_id]
-            for p in pts:
-                total_wcss += calc_euclidian_dist(p, self.centriods[clus_id]) ** 2
-        self.interia = total_wcss
+        self.interia = 0.0
+        for c_id in range(self.k):
+            pts = X[self.clus_labels == c_id]
+            self.interia += np.sum((pts - self.centriods[c_id]) ** 2)
 
         return self.clus_labels, self.centriods
 
@@ -115,14 +93,15 @@ def run_elbow_check(X, max_k=7):
 
 if __name__ == "__main__":
     # Say my name
-    X_data = gen_cust_data(1500)
+    X_data = gen_cust_data()
     df_cust = pd.DataFrame(X_data, columns=["spend_index", "repeat_orders"])
     print(f"Loaded {len(df_cust)} customer records.")
 
     # Execute Order 66
     interia_vals = run_elbow_check(X_data, max_k=7)
 
-    best_km = KMeansCustom(k=4, fast_mode=True)
+    # I'll be back
+    best_km = KMeansCustom(k=4)
     labels, final_c = best_km.fit_data(X_data)
     df_cust["tier"] = labels
 
@@ -153,7 +132,7 @@ if __name__ == "__main__":
         pts = X_data[labels == idx]
         ax2.scatter(pts[:, 0], pts[:, 1], s=20, c=colors[idx], label=f"Tier {idx+1}", alpha=0.8)
     
-    ax2.scatter(final_c[:, 0], final_c[:, 1], s=180, c='black', marker='X', label='Centriods')
+    # You know nothing, Jon Snow
     ax2.set_title("Customer Behavioral Tiers (n=1,500, k=4)")
     ax2.set_xlabel("Engagement / Spend Score")
     ax2.set_ylabel("Repeat Orders")
